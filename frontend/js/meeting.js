@@ -21,8 +21,9 @@ let session = null;
 let watchId = null;
 let routeLine = null;
 let connectorLine = null;
-let positions = {};
+const positions = {};
 const markers = {};
+const participantUsers = {};
 
 const distanceText = document.getElementById('distanceText');
 const durationText = document.getElementById('durationText');
@@ -75,6 +76,10 @@ function distanceMeters(a, b) {
   return 2 * earthRadius * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
+function colorForUser(userId) {
+  return Number(userId) === Number(currentUser.id) ? '#1971c2' : '#d94848';
+}
+
 function iconFor(user, color) {
   return L.divIcon({
     className: 'user-marker',
@@ -93,6 +98,19 @@ function upsertMarker(userId, user, position, color) {
   }
 }
 
+function setUserPosition(userId, user, position) {
+  const normalizedUserId = String(userId);
+  participantUsers[normalizedUserId] = user;
+  positions[normalizedUserId] = {
+    userId: Number(userId),
+    latitude: position.latitude,
+    longitude: position.longitude,
+    accuracy: position.accuracy,
+    updatedAt: position.updatedAt || new Date().toISOString()
+  };
+  upsertMarker(normalizedUserId, user, positions[normalizedUserId], colorForUser(userId));
+}
+
 async function loadRoute(a, b) {
   const url = `https://router.project-osrm.org/route/v1/foot/${a.longitude},${a.latitude};${b.longitude},${b.latitude}?overview=full&geometries=geojson&steps=true&language=fr`;
   const response = await fetch(url);
@@ -108,12 +126,9 @@ async function loadRoute(a, b) {
 }
 
 function refreshMap() {
-  const mine = positions[currentUser.id];
-  const peer = session && positions[session.peer.id];
+  const mine = positions[String(currentUser.id)];
+  const peer = session && positions[String(session.peer.id)];
   if (!mine || !peer) return;
-
-  upsertMarker(currentUser.id, currentUser, mine, '#1f8a70');
-  upsertMarker(session.peer.id, session.peer, peer, '#f59f00');
 
   const latlngs = [[mine.latitude, mine.longitude], [peer.latitude, peer.longitude]];
   if (connectorLine) connectorLine.remove();
@@ -134,10 +149,20 @@ async function api(url, options = {}) {
 
 async function init() {
   session = await api(`/api/meetings/session/${sessionId}`);
+  participantUsers[String(currentUser.id)] = currentUser;
+  participantUsers[String(session.peer.id)] = session.peer;
   meetingPeer.textContent = `${session.peer.prenom} ${session.peer.nom}`;
   meCard.innerHTML = personCard(currentUser, 'Vous');
   peerCard.innerHTML = personCard(session.peer, 'Partenaire');
-  socket.emit('session:join', sessionId);
+  await new Promise((resolve, reject) => {
+    socket.emit('meeting:join', sessionId, (response) => {
+      if (!response || !response.ok) {
+        reject(new Error(response && response.message ? response.message : 'Session non autorisee.'));
+        return;
+      }
+      resolve(response.roomId);
+    });
+  });
 
   if (!navigator.geolocation) {
     distanceText.textContent = 'Geolocalisation indisponible';
@@ -152,8 +177,7 @@ async function init() {
       accuracy: pos.coords.accuracy,
       user: currentUser
     };
-    positions[currentUser.id] = payload;
-    upsertMarker(currentUser.id, currentUser, payload, '#1f8a70');
+    setUserPosition(currentUser.id, currentUser, payload);
     socket.emit('location:update', payload);
     refreshMap();
   }, () => {
@@ -161,8 +185,9 @@ async function init() {
   }, { enableHighAccuracy: true, maximumAge: 3000, timeout: 12000 });
 }
 
-socket.on('location:updated', (payload) => {
-  positions[payload.userId] = payload;
+socket.on('location-update', (payload) => {
+  const user = payload.user || participantUsers[String(payload.userId)] || session.peer;
+  setUserPosition(payload.userId, user, payload);
   refreshMap();
 });
 
