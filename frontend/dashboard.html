@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tableau de bord - GeoMeet</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <a class="nav-brand" href="dashboard.html"><span>G</span>GeoMeet</a>
+    <div class="nav-actions">
+      <span id="userName" class="nav-user"></span>
+      <button id="logoutBtn" class="btn ghost">Deconnexion</button>
+    </div>
+  </nav>
+
+  <main class="dashboard">
+    <section class="hero-band">
+      <div>
+        <p class="eyebrow">Tableau de bord</p>
+        <h1>Organisez une rencontre geolocalisee</h1>
+      </div>
+      <div class="status-pill"><span id="onlineCount">0</span> en ligne</div>
+    </section>
+
+    <section class="search-panel">
+      <div>
+        <h2>Rechercher une personne</h2>
+        <p class="muted">Recherchez par nom, prenom ou email.</p>
+      </div>
+      <form id="searchForm" class="search-form">
+        <input id="searchInput" type="search" placeholder="Ex: patrick" minlength="2">
+        <button class="btn primary" type="submit">Rechercher</button>
+      </form>
+      <div id="searchResults" class="list"></div>
+    </section>
+
+    <section class="dashboard-grid">
+      <div class="panel">
+        <h2>Demandes recues</h2>
+        <div id="receivedRequests" class="list compact"></div>
+      </div>
+      <div class="panel">
+        <h2>Demandes envoyees</h2>
+        <div id="sentRequests" class="list compact"></div>
+      </div>
+      <div class="panel">
+        <h2>Rencontres actives</h2>
+        <div id="activeSessions" class="list compact"></div>
+      </div>
+      <div class="panel">
+        <h2>Utilisateurs en ligne</h2>
+        <div id="onlineUsers" class="list compact"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="js/dashboard.js"></script>
+</body>
+</html>
