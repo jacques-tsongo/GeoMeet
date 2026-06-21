@@ -22,6 +22,22 @@ async function findById(id) {
   return rows[0];
 }
 
+async function findActiveForUser(id, userId) {
+  const [rows] = await db.execute(
+    `SELECT ms.*,
+      u1.nom AS user1_nom, u1.prenom AS user1_prenom, u1.photo AS user1_photo,
+      u2.nom AS user2_nom, u2.prenom AS user2_prenom, u2.photo AS user2_photo
+     FROM meeting_sessions ms
+     JOIN users u1 ON u1.id = ms.user1_id
+     JOIN users u2 ON u2.id = ms.user2_id
+     WHERE ms.id = ?
+       AND ms.is_active = TRUE
+       AND (ms.user1_id = ? OR ms.user2_id = ?)`,
+    [id, userId, userId]
+  );
+  return rows[0];
+}
+
 async function listActiveForUser(userId) {
   const [rows] = await db.execute(
     `SELECT ms.*,
@@ -47,4 +63,4 @@ async function end(id, userId) {
   return findById(id);
 }
 
-module.exports = { create, findById, listActiveForUser, end };
+module.exports = { create, findById, findActiveForUser, listActiveForUser, end };
