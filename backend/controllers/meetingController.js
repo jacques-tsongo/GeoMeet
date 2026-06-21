@@ -2,6 +2,10 @@ const MeetingRequest = require('../models/MeetingRequest');
 const MeetingSession = require('../models/MeetingSession');
 const User = require('../models/User');
 
+function meetingRoom(sessionId) {
+  return `meeting_${sessionId}`;
+}
+
 function getPeer(session, userId) {
   const isUser1 = Number(session.user1_id) === Number(userId);
   return {
@@ -106,7 +110,7 @@ async function endSession(req, res) {
     if (!session) {
       return res.status(404).json({ message: 'Session introuvable.' });
     }
-    req.app.get('io').to(`session:${req.params.id}`).emit('meeting:ended', session);
+    req.app.get('io').to(meetingRoom(req.params.id)).emit('meeting:ended', session);
     return res.json(session);
   } catch (error) {
     return res.status(500).json({ message: 'Erreur fin de session.', error: error.message });
