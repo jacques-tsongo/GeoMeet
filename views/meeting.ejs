@@ -13,13 +13,20 @@
     <!-- MIGRATION HTML -> EJS : lien vers la route de page /dashboard -->
     <a class="nav-brand" href="/dashboard"><span>G</span>GeoMeet</a>
     <div class="nav-actions">
+      <!-- État de la session (ACTIVE / ENDED) synchronisé en temps réel -->
+      <span id="meetingState" class="badge active">ACTIVE</span>
       <strong id="meetingPeer">Session active</strong>
       <button id="endSessionBtn" class="btn danger">Terminer</button>
     </div>
   </nav>
 
+  <!-- Bouton d'ouverture du panneau latéral (affiché en mobile/tablette) -->
+  <button id="sidebarToggle" class="sidebar-toggle" aria-label="Ouvrir le panneau" title="Panneau">
+    <span></span><span></span><span></span>
+  </button>
+
   <main class="map-layout">
-    <aside class="meeting-sidebar">
+    <aside id="meetingSidebar" class="meeting-sidebar">
       <h1>Localisation en direct</h1>
       <div class="metric">
         <span>Distance</span>
@@ -36,7 +43,12 @@
       <h2>Itineraire</h2>
       <ol id="instructions" class="instructions"></ol>
     </aside>
-    <section id="map" class="map"></section>
+
+    <section id="map" class="map">
+      <!-- Bouton flottant : recentre la carte sur les deux marqueurs.
+           Placé DANS le conteneur de la carte pour être positionné par rapport à elle. -->
+      <button id="recenterBtn" class="recenter-btn" title="Recadrer la carte sur les deux positions">&#8982;</button>
+    </section>
   </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

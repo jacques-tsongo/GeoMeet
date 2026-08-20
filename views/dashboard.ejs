@@ -23,13 +23,14 @@
         <p class="eyebrow">Tableau de bord</p>
         <h1>Organisez une rencontre geolocalisee</h1>
       </div>
+      <!-- Indicateur léger : nombre de personnes en ligne (liste supprimée) -->
       <div class="status-pill"><span id="onlineCount">0</span> en ligne</div>
     </section>
 
     <section class="search-panel">
       <div>
         <h2>Rechercher une personne</h2>
-        <p class="muted">Recherchez par nom, prenom ou email.</p>
+        <p class="muted">Recherchez par nom, prenom ou email, puis envoyez une demande.</p>
       </div>
       <form id="searchForm" class="search-form">
         <input id="searchInput" type="search" placeholder="Ex: patrick" minlength="2">
@@ -38,6 +39,8 @@
       <div id="searchResults" class="list"></div>
     </section>
 
+    <!-- Demandes reçues / envoyées / sessions actives (plus de liste
+         permanente de tous les utilisateurs dans le dashboard). -->
     <section class="dashboard-grid">
       <div class="panel">
         <h2>Demandes recues</h2>
@@ -50,10 +53,6 @@
       <div class="panel">
         <h2>Rencontres actives</h2>
         <div id="activeSessions" class="list compact"></div>
-      </div>
-      <div class="panel">
-        <h2>Utilisateurs en ligne</h2>
-        <div id="onlineUsers" class="list compact"></div>
       </div>
     </section>
   </main>
