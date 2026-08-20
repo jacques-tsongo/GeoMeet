@@ -8,6 +8,7 @@ function meetingRoom(sessionId) {
 }
 
 function attachLocationSocket(io) {
+  // Authentification par JWT dans le handshake Socket.IO.
   io.use((socket, next) => {
     const token = socket.handshake.auth && socket.handshake.auth.token;
     if (!token) {
@@ -25,9 +26,14 @@ function attachLocationSocket(io) {
   io.on('connection', (socket) => {
     const userId = socket.user.id;
     setOnline(userId, socket.id);
+    // Chaque utilisateur est dans son propre "room" : cela permet d'envoyer
+    // des événements ciblés (demandes, réponses, états) SANS diffuser à tous.
     socket.join(`user:${userId}`);
     io.emit('users:online', listOnlineIds());
 
+    // Demande de rejoindre une session de rencontre.
+    // On vérifie que l'utilisateur appartient bien à la session et que la
+    // session est active avant de le faire entrer dans le "room" de la rencontre.
     socket.on('meeting:join', async (sessionId, callback) => {
       try {
         const session = await MeetingSession.findActiveForUser(sessionId, userId);
@@ -38,15 +44,37 @@ function attachLocationSocket(io) {
 
         const roomId = meetingRoom(sessionId);
         socket.join(roomId);
-        if (callback) callback({ ok: true, roomId });
+
+        // Informe l'autre participant qu'un utilisateur vient de rejoindre :
+        // il pourra lui envoyer immédiatement sa position courante, de sorte
+        // que les DEUX marqueurs soient visibles dès l'ouverture de la carte.
+        socket.to(roomId).emit('meeting:peer-joined', { userId, sessionId });
+
+        // Renvoie les dernières positions connues des deux participants.
+        // Cela permet au client de resynchroniser l'état dès la (re)connexion
+        // sans attendre le prochain signal GPS.
+        const [locUser1, locUser2] = await Promise.all([
+          Location.findByUserId(session.user1_id),
+          Location.findByUserId(session.user2_id)
+        ]);
+        const locations = {
+          [session.user1_id]: locUser1 || null,
+          [session.user2_id]: locUser2 || null
+        };
+
+        if (callback) callback({ ok: true, roomId, session, locations });
       } catch (error) {
         if (callback) callback({ ok: false, message: 'Impossible de rejoindre la rencontre.' });
       }
     });
 
+    // Nouvelle position signalée par un participant.
+    // Sécurité : on vérifie systématiquement que l'utilisateur connecté
+    // appartient bien à la session, puis on émet UNIQUEMENT vers le room de
+    // SA session (jamais vers tous les clients connectés).
     socket.on('location:update', async (payload) => {
       try {
-        const { sessionId, latitude, longitude, accuracy, user } = payload || {};
+        const { sessionId, latitude, longitude, accuracy } = payload || {};
         if (!sessionId || typeof latitude !== 'number' || typeof longitude !== 'number') {
           return;
         }
@@ -57,14 +85,17 @@ function attachLocationSocket(io) {
         }
 
         await Location.upsert({ userId, latitude, longitude, accuracy });
+
+        const updatedAt = new Date().toISOString();
+        // 'socket.to(...)' exclut l'émetteur : seul l'autre participant du room
+        // reçoit la position. Le nom/photo ne transitent pas ici (données privées).
         socket.to(meetingRoom(sessionId)).emit('location-update', {
           sessionId,
           userId,
           latitude,
           longitude,
           accuracy,
-          user,
-          updatedAt: new Date().toISOString()
+          updatedAt
         });
       } catch (error) {
         socket.emit('location:error', { message: 'Position non envoyee.' });
