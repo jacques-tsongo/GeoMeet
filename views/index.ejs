@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GeoMeet - Rencontres geolocalisees en temps reel</title>
+  <!-- MIGRATION HTML -> EJS : chemins statiques absolus servis par Express (/public) -->
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <!-- MIGRATION HTML -> EJS : liens de pages rendues par Express (routes /login et /register) -->
+    <a class="nav-brand" href="/"><span>G</span>GeoMeet</a>
+    <div class="nav-actions">
+      <a class="btn ghost" href="/login">Se connecter</a>
+      <a class="btn primary" href="/register">Creer un compte</a>
+    </div>
+  </nav>
+
+  <main class="dashboard">
+    <section class="hero-band">
+      <div>
+        <p class="eyebrow">Rencontres geolocalisees</p>
+        <h1>Retrouvez quelqu'un, ou qu'il soit.</h1>
+        <p style="color: rgba(255,255,255,0.85); max-width: 640px; line-height: 1.6;">
+          GeoMeet partage votre position uniquement pendant une rencontre, en temps reel,
+          et vous guide jusqu'a l'autre personne avec la distance et un itineraire.
+        </p>
+      </div>
+      <div class="status-pill">100% temps reel</div>
+    </section>
+
+    <section class="search-panel">
+      <div>
+        <h2>Comment ca marche ?</h2>
+        <p class="muted">Trois etapes suffisent pour organiser une rencontre.</p>
+      </div>
+      <div class="list" style="margin-top: 16px;">
+        <article class="person-card">
+          <div class="online-dot"></div>
+          <div><strong>1. Creez votre profil</strong><span>Inscription rapide avec nomination, email et telephone.</span></div>
+        </article>
+        <article class="person-card">
+          <div class="online-dot"></div>
+          <div><strong>2. Envoyez une demande</strong><span>Recherchez une personne et demandez a la rencontrer.</span></div>
+        </article>
+        <article class="person-card">
+          <div class="online-dot"></div>
+          <div><strong>3. Partagez votre position</strong><span>Partage temporaire de localisation, carte, distance et itineraire en direct.</span></div>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <!-- Petite dynamique EJS : annee courante du pied de page -->
+  <footer style="text-align:center; color:var(--muted); padding:24px;">
+    &copy; <%= new Date().getFullYear() %> GeoMeet - partage de localisation en temps reel
+  </footer>
+</body>
+</html>
