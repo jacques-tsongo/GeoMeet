@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inscription - GeoMeet</title>
+  <!-- MIGRATION HTML -> EJS : chemin CSS absolu servi par Express (/public) -->
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="auth-page">
+  <main class="auth-shell">
+    <section class="brand-panel">
+      <div class="brand-mark">G</div>
+      <h1>GeoMeet</h1>
+      <p>Creer un profil pour envoyer et accepter des rencontres geolocalisees.</p>
+    </section>
+
+    <section class="auth-card wide">
+      <h2>Inscription</h2>
+      <form id="registerForm" class="form grid-form">
+        <label>Nom
+          <input type="text" name="nom" required autocomplete="family-name">
+        </label>
+        <label>Prenom
+          <input type="text" name="prenom" required autocomplete="given-name">
+        </label>
+        <label>Email
+          <input type="email" name="email" required autocomplete="email">
+        </label>
+        <label>Telephone
+          <input type="tel" name="telephone" required autocomplete="tel">
+        </label>
+        <label>Photo URL
+          <input type="url" name="photo" placeholder="https://...">
+        </label>
+        <label>Mot de passe
+          <input type="password" name="password" required autocomplete="new-password">
+        </label>
+        <label>Confirmation
+          <input type="password" name="confirmPassword" required autocomplete="new-password">
+        </label>
+        <button class="btn primary full" type="submit">Creer mon compte</button>
+      </form>
+      <p id="message" class="message"></p>
+      <!-- MIGRATION HTML -> EJS : lien vers la route EJS /login -->
+      <p class="switch-link">Deja inscrit ? <a href="/login">Se connecter</a></p>
+    </section>
+  </main>
+  <!-- MIGRATION HTML -> EJS : script JS absolu servi par Express (/public) -->
+  <script src="/js/register.js"></script>
+</body>
+</html>
