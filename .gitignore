@@ -1,2 +1,9 @@
-.env.example
+# Ne jamais committer les identifiants / secrets
+.env
+
+# Dependances
 node_modules
+
+# Logs et systeme
+npm-debug.log*
+.DS_Store
