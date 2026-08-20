@@ -1,5 +1,6 @@
 # Ne jamais committer les identifiants / secrets
 .env
+.env.exemple
 
 # Dependances
 node_modules
