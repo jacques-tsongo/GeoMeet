@@ -23,6 +23,9 @@ app.set('io', io);
 app.use(cors({ origin: process.env.FRONTEND_URL || '*', credentials: true }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'frontend', 'login.html'));
+});
 
 app.use('/api', authRoutes);
 app.use('/api', userRoutes);
@@ -38,9 +41,9 @@ app.get('/', (req, res) => {
 
 attachLocationSocket(io);
 
-const port = Number(process.env.PORT || 5000);
+const port = Number(process.env.PORT || "3200");
 
 
 server.listen(port, "0.0.0.0", () => {
-  console.log(`GeoMeet lance sur http://localhost:${port}`);
+  console.log(`GeoMeet lance déjà`);
 });
