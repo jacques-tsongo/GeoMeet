@@ -55,7 +55,7 @@ async function login(req, res) {
     const token = signToken(user);
     return res.json({ token, user });
   } catch (error) {
-    return res.status(500).json({ message: 'Erreur lors de la connexion.', error: error.message });
+    return res.status(500).json({ message: `Erreur lors de la connexion. ${error.message}`, error: error.message });
   }
 }
 
