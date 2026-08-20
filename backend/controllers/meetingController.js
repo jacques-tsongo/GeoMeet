@@ -16,6 +16,31 @@ function getPeer(session, userId) {
   };
 }
 
+// Harmonise les états de la session avec une valeur calculée unique ('state').
+// La structure existante utilise un booléen is_active : on le traduit en
+// état lisible par le frontend pour afficher proprement le cycle de vie.
+function serializeSession(session, userId) {
+  return {
+    ...session,
+    state: session.is_active ? 'ACTIVE' : 'ENDED',
+    peer: getPeer(session, userId)
+  };
+}
+
+function serializeRequest(request, userId) {
+  const isReceiver = Number(request.receiver_id) === Number(userId);
+  return {
+    ...request,
+    state: request.status === 'pending' ? 'PENDING' : request.status === 'accepted' ? 'ACCEPTED' : 'REJECTED',
+    peer: {
+      id: isReceiver ? request.sender_id : request.receiver_id,
+      nom: isReceiver ? request.sender_nom : request.receiver_nom,
+      prenom: isReceiver ? request.sender_prenom : request.receiver_prenom,
+      photo: isReceiver ? request.sender_photo : request.receiver_photo
+    }
+  };
+}
+
 async function createRequest(req, res) {
   try {
     const senderId = req.user.id;
@@ -61,8 +86,22 @@ async function respondToRequest(req, res) {
     }
 
     const io = req.app.get('io');
+    // Informe les DEUX participants du résultat (acceptation ou refus).
     io.to(`user:${request.sender_id}`).emit('meeting:response', { request: updated, session });
     io.to(`user:${request.receiver_id}`).emit('meeting:response', { request: updated, session });
+
+    // Lorsqu'une session démarre, on notifie explicitement les deux utilisateurs
+    // afin que la carte s'ouvre automatiquement chez A et chez B.
+    if (status === 'accepted' && session) {
+      io.to(`user:${request.sender_id}`).emit('meeting:started', {
+        session,
+        peer: getPeer(session, request.sender_id)
+      });
+      io.to(`user:${request.receiver_id}`).emit('meeting:started', {
+        session,
+        peer: getPeer(session, request.receiver_id)
+      });
+    }
     return res.json({ request: updated, session });
   } catch (error) {
     return res.status(500).json({ message: 'Erreur lors de la reponse.', error: error.message });
@@ -77,12 +116,9 @@ async function dashboard(req, res) {
     ]);
 
     return res.json({
-      received: requests.filter((request) => Number(request.receiver_id) === Number(req.user.id)),
-      sent: requests.filter((request) => Number(request.sender_id) === Number(req.user.id)),
-      activeSessions: sessions.map((session) => ({
-        ...session,
-        peer: getPeer(session, req.user.id)
-      }))
+      received: requests.filter((request) => Number(request.receiver_id) === Number(req.user.id)).map((request) => serializeRequest(request, req.user.id)),
+      sent: requests.filter((request) => Number(request.sender_id) === Number(req.user.id)).map((request) => serializeRequest(request, req.user.id)),
+      activeSessions: sessions.map((session) => serializeSession(session, req.user.id))
     });
   } catch (error) {
     return res.status(500).json({ message: 'Erreur tableau de bord.', error: error.message });
@@ -98,7 +134,7 @@ async function getSession(req, res) {
     if (![session.user1_id, session.user2_id].map(Number).includes(Number(req.user.id))) {
       return res.status(403).json({ message: 'Acces refuse.' });
     }
-    return res.json({ ...session, peer: getPeer(session, req.user.id) });
+    return res.json(serializeSession(session, req.user.id));
   } catch (error) {
     return res.status(500).json({ message: 'Erreur session.', error: error.message });
   }
@@ -110,7 +146,13 @@ async function endSession(req, res) {
     if (!session) {
       return res.status(404).json({ message: 'Session introuvable.' });
     }
-    req.app.get('io').to(meetingRoom(req.params.id)).emit('meeting:ended', session);
+    const io = req.app.get('io');
+    // Notifie la room (participants présents sur la page rencontre) ET les
+    // rooms personnelles des deux utilisateurs : ainsi, même un utilisateur
+    // resté sur le tableau de bord est informé immédiatement de la fin.
+    io.to(meetingRoom(req.params.id)).emit('meeting:ended', session);
+    io.to(`user:${session.user1_id}`).emit('meeting:ended', session);
+    io.to(`user:${session.user2_id}`).emit('meeting:ended', session);
     return res.json(session);
   } catch (error) {
     return res.status(500).json({ message: 'Erreur fin de session.', error: error.message });
