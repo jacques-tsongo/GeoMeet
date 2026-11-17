@@ -17,6 +17,16 @@ const socket = io({ auth: { token } });
 // métropolitaine, pour ne jamais ouvrir sur une zone vide (océan) tant que
 // les deux marqueurs ne sont pas disponibles.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Modes debug : pour tracer la chaîne GPS -> Socket.IO -> Leaflet, ouvrir la
+// page avec ?debug=1 (ex: /meeting?session=5&debug=1). Les logs sont
+// désactivés en production (aucune console.log sans le flag).
+// ---------------------------------------------------------------------------
+const DEBUG = new URLSearchParams(window.location.search).has('debug');
+function dbg(...args) {
+  if (DEBUG) console.log('[GeoMeet Debug]', ...args);
+}
+
 const DEFAULT_MAP_CENTER = [46.6, 2.4];
 const DEFAULT_MAP_ZOOM = 6;
 const map = L.map('map', {
@@ -34,7 +44,15 @@ let session = null;
 let sessionState = 'ACTIVE';
 let watchId = null; // identifiant du watchPosition (permet de ne lancer qu'UNE seule fois)
 let joined = false; // la page a-t-elle déjà rejoint le room de la session ?
-let hasLiveFix = false; // un premier signal GPS a-t-il été reçu ?
+// Le tout premier signal GPS de la page doit TOUJOURS être transmis, même si
+// la position ne diffère pas de la dernière connue : le partenaire doit
+// savoir immédiatement que la session est bien alimentée en direct.
+let firstLiveFixPending = true;
+// Dernier envoi effectif effectué (baseline du filtre anti-bruit + chrono).
+let lastSentPosition = null;
+let lastSentAt = 0;
+// Une position (stockée ou GPS) a-t-elle déjà été émise sur cette page ?
+let hasSentAnyPosition = false;
 
 const markers = {};       // userId -> marqueur Leaflet
 const positions = {};     // userId -> dernière position réelle reçue
@@ -47,8 +65,12 @@ let connectorLine = null; // ligne pointillée reliant les deux participants
 let routeTimer = null;    // temporisateur de chargement d'itinéraire (debounce)
 let initialFitDone = false; // la carte a-t-elle déjà été cadrée sur la session ?
 let userInteracted = false; // l'utilisateur a-t-il déplacé/zoomé la carte manuellement ?
-let lastSentPosition = null; // dernière position envoyée (seuil anti-bruit GPS)
-const MIN_MOVE_METERS = 3; // déplacement minimal (m) avant renvoi d'une position
+const MIN_MOVE_METERS = 3;   // déplacement minimal (m) pour transmettre une position
+const MAX_IDLE_MS = 10000;   // délai max sans envoi : force la transmission d'une
+                             // position même quasi identique (petits déplacements
+                             // continus) => le marqueur du partenaire ne gèle jamais.
+const REFRESH_ON_VISIBLE_MS = 15000; // âge max d'une position avant rafraîchissement
+                                     // forcé au retour dans l'onglet
 
 const distanceText = document.getElementById('distanceText');
 const durationText = document.getElementById('durationText');
@@ -141,6 +163,8 @@ function animateMarkerTo(userId, targetLatLng, animate = true) {
 // Mémorise une position et crée/met à jour le marqueur correspondant.
 // Les coordonnées sont converties en nombres et validées avant toute
 // utilisation : une position invalide est simplement ignorée.
+// Une position PLUS ANCIENNE que celle déjà affichée est également ignorée
+// (garde-fou anti-stale) : elle ne doit jamais faire "reculer" le marqueur.
 function setUserPosition(userId, user, position, animate = true) {
   if (position.latitude == null || position.longitude == null) return;
 
@@ -149,15 +173,33 @@ function setUserPosition(userId, user, position, animate = true) {
   if (!isFinite(latitude) || !isFinite(longitude)) return;
 
   const normalizedUserId = String(userId);
+
+  // Comparaison de fraîcheur : si la position entrante est plus ancienne que
+  // celle déjà mémorisée, on l'ignore. Les timestamps proviennent du GPS du
+  // navigateur (epoch ms) ou de la base de données (via updatedAt).
+  const previous = positions[normalizedUserId];
+  if (previous) {
+    const newTs = Number(position.timestamp);
+    const oldTs = Number(previous.timestamp) ||
+      Number(new Date(previous.updatedAt || 0).getTime()) || 0;
+    if (isFinite(newTs) && isFinite(oldTs) && oldTs > 0 && newTs < oldTs) {
+      dbg('[GeoMeet Marker] position obsolète ignorée', userId, newTs, '<', oldTs);
+      return;
+    }
+  }
+
   participantUsers[normalizedUserId] = user;
   positions[normalizedUserId] = {
     userId: Number(userId),
     latitude,
     longitude,
     accuracy: position.accuracy,
+    timestamp: Number(position.timestamp) || undefined,
     updatedAt: position.updatedAt || new Date().toISOString()
   };
 
+  // On réutilise le marqueur existant (setLatLng) au lieu d'en créer un
+  // nouveau : un seul marqueur par utilisateur, déplacement fluide garanti.
   if (!markers[normalizedUserId]) {
     markers[normalizedUserId] = L.marker([latitude, longitude], {
       icon: iconFor(user, colorForUser(userId))
@@ -165,6 +207,7 @@ function setUserPosition(userId, user, position, animate = true) {
   } else {
     animateMarkerTo(normalizedUserId, [latitude, longitude], animate);
   }
+  dbg('[GeoMeet Marker] marqueur mis à jour', userId, latitude, longitude);
 }
 
 function formatStep(step) {
@@ -326,15 +369,18 @@ function joinSession() {
       const myId = String(currentUser.id);
 
       // Position connue de l'utilisateur : on crée immédiatement son marqueur
-      // (il sera rafraîchi par le GPS) et on évite de renvoyer la même position
-      // au serveur tant que le premier signal ne dépasse pas le seuil.
+      // (il sera rafraîchi par le GPS). Le timestamp servi par le serveur sert
+      // de référence de fraîcheur pour le garde-fou anti-stale.
       const myLoc = locations[myId];
       if (myLoc && myLoc.latitude != null) {
         setUserPosition(myId, currentUser, {
           latitude: Number(myLoc.latitude),
           longitude: Number(myLoc.longitude),
-          accuracy: myLoc.accuracy
+          accuracy: myLoc.accuracy,
+          timestamp: myLoc.timestamp
         }, false);
+        // Baseline du filtre anti-bruit uniquement : les prochaines mesures
+        // GPS sont comparées à cette position pour détecter un déplacement.
         lastSentPosition = { latitude: Number(myLoc.latitude), longitude: Number(myLoc.longitude) };
       }
 
@@ -344,7 +390,8 @@ function joinSession() {
         setUserPosition(peerId, session.peer, {
           latitude: Number(peerLoc.latitude),
           longitude: Number(peerLoc.longitude),
-          accuracy: peerLoc.accuracy
+          accuracy: peerLoc.accuracy,
+          timestamp: peerLoc.timestamp
         }, false);
       }
 
@@ -379,31 +426,56 @@ function startWatching() {
         sessionId,
         latitude: pos.coords.latitude,
         longitude: pos.coords.longitude,
-        accuracy: pos.coords.accuracy
+        accuracy: pos.coords.accuracy,
+        // Le timestamp GPS (epoch ms) est transmis : il permet au serveur et
+        // au client distant d'ordonner les positions et d'ignorer les anciennes.
+        timestamp: pos.timestamp
       };
 
       // Toujours mettre à jour le marqueur local, même si on n'envoie rien.
       setUserPosition(currentUser.id, currentUser, payload, false);
       updateOverlay();
+      dbg('[GeoMeet GPS] nouvelle position', payload.latitude, payload.longitude, 'préc.', payload.accuracy);
 
-      // Seuil anti-bruit : on ne transmet que les déplacements significatifs
-      // pour éviter d'envoyer des centaines d'événements inutiles au serveur.
-      // Exception : le TOUT PREMIER signal GPS de la page est toujours envoyé
-      // (hasLiveFix false), sinon le marqueur ne serait jamais repris en réseau.
-      if (hasLiveFix && lastSentPosition &&
-          distanceMeters(lastSentPosition, payload) < MIN_MOVE_METERS) {
+      // Filtre anti-bruit SANS jamais geler le marqueur distant :
+      //   1. déplacement significatif (>= MIN_MOVE_METERS) -> on envoie ;
+      //   2. sinon, si aucune transmission depuis MAX_IDLE_MS -> on envoie
+      //      quand même : les petits déplacements répétés finissent toujours
+      //      par être transmis au partenaire ;
+      //   3. le tout premier signal GPS de la page est toujours envoyé.
+      const moved = lastSentPosition ? distanceMeters(lastSentPosition, payload) : Infinity;
+      const idle = lastSentAt ? Date.now() - lastSentAt : Infinity;
+      if (!firstLiveFixPending && moved < MIN_MOVE_METERS && idle < MAX_IDLE_MS) {
+        dbg('[GeoMeet GPS] position inchangée, non envoyée');
         return;
       }
 
-      hasLiveFix = true;
+      firstLiveFixPending = false;
+      hasSentAnyPosition = true;
       lastSentPosition = payload;
+      lastSentAt = Date.now();
+      // Informe l'autre participant de la nouvelle position : l'événement est
+      // relayé par le serveur UNIQUEMENT aux membres de la session concernée
+      // (jamais diffusé à tous), puis appliqué au marqueur distant.
       socket.emit('location:update', payload);
+      dbg('[GeoMeet Socket] position envoyée', payload.latitude, payload.longitude);
       fitMapToPositions();
     },
-    () => {
-      distanceText.textContent = 'Autorisez la localisation';
+    (error) => {
+      // Messages clairs selon l'erreur de géolocalisation, sans casser la
+      // session : watchPosition continue d'émettre les codes d'erreur et
+      // reprend automatiquement dès que le navigateur retente une mesure.
+      const messages = {
+        1: 'Geolocalisation refusee : GeoMeet a besoin de votre localisation pour partager votre position avec l\'autre participant.',
+        2: 'Position indisponible pour le moment. Reessayez.',
+        3: 'Delai de geolocalisation depasse.'
+      };
+      distanceText.textContent = messages[error.code] || 'Erreur de geolocalisation';
+      dbg('[GeoMeet GPS] erreur', error.code, error.message);
     },
-    { enableHighAccuracy: true, maximumAge: 3000, timeout: 12000 }
+    // Configuration adaptée : mesure précise (GPS) mais sans rafale inutile —
+    // maximumAge 0 évite de renvoyer indéfiniment la même position en cache.
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
   );
 }
 
@@ -415,7 +487,72 @@ function stopWatching() {
 }
 
 // Arrête proprement le suivi lorsque la page est quittée.
+// 'pagehide' est plus fiable que 'beforeunload' sur mobile.
 window.addEventListener('beforeunload', stopWatching);
+window.addEventListener('pagehide', stopWatching);
+
+// ---------------------------------------------------------------------------
+// Resynchronisation au retour dans l'onglet : le navigateur/OS peut suspendre
+// la géolocalisation pendant que l'onglet est en arrière-plan ou que l'écran
+// est verrouillé. Dès que l'onglet redevient visible, on force UNE mesure
+// fraîche (getCurrentPosition, SANS créer de nouveau watchPosition) et on la
+// transmet immédiatement au partenaire si la dernière connue est trop ancienne.
+// ---------------------------------------------------------------------------
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || watchId === null) return;
+
+  const myPos = positions[String(currentUser.id)];
+  if (!myPos) return;
+
+  const age = Date.now() - Number(myPos.timestamp || 0);
+  if (isFinite(age) && age < REFRESH_ON_VISIBLE_MS) return;
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const payload = {
+        sessionId,
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+        timestamp: pos.timestamp
+      };
+      setUserPosition(currentUser.id, currentUser, payload, false);
+      updateOverlay();
+      firstLiveFixPending = false;
+      hasSentAnyPosition = true;
+      lastSentPosition = payload;
+      lastSentAt = Date.now();
+      socket.emit('location:update', payload);
+      dbg('[GeoMeet GPS] reprise onglet, position envoyée', payload.latitude, payload.longitude);
+    },
+    () => {
+      // Le watchPosition principal reste actif : on ne fait rien ici.
+    },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 }
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Envoie une fois la dernière position connue (stockée en base ou mesurée)
+// après la jointure à la session : garantit que le partenaire voie
+// immédiatement notre marqueur, même avant le premier signal GPS frais.
+// ---------------------------------------------------------------------------
+function syncLastKnownPosition() {
+  const myPos = positions[String(currentUser.id)];
+  if (!myPos || hasSentAnyPosition) return;
+
+  hasSentAnyPosition = true;
+  lastSentPosition = {
+    latitude: myPos.latitude,
+    longitude: myPos.longitude,
+    sessionId,
+    accuracy: myPos.accuracy,
+    timestamp: Date.now()
+  };
+  lastSentAt = Date.now();
+  socket.emit('location:update', lastSentPosition);
+  dbg('[GeoMeet Socket] position connue envoyée après join', lastSentPosition.latitude, lastSentPosition.longitude);
+}
 
 // ---------------------------------------------------------------------------
 // Initialisation de la page : chargement de la session, jointure du room
@@ -433,6 +570,9 @@ async function init() {
   peerCard.innerHTML = personCard(session.peer, 'Partenaire');
 
   await joinSession();
+  // Le partenaire reçoit immédiatement notre position connue : les DEUX
+  // marqueurs sont visibles dès l'ouverture, même si le GPS tarde à répondre.
+  syncLastKnownPosition();
   startWatching();
 }
 
@@ -458,6 +598,7 @@ socket.on('location-update', (payload) => {
   const userIdKey = String(payload.userId);
   const user = participantUsers[userIdKey] || (session && (Number(payload.userId) === Number(session.peer.id) ? session.peer : null));
   if (!user) return;
+  dbg('[GeoMeet Socket] position reçue', payload.userId, payload.latitude, payload.longitude);
   setUserPosition(payload.userId, user, payload);
   updateOverlay();
   fitMapToPositions();
@@ -472,7 +613,8 @@ socket.on('meeting:peer-joined', (payload) => {
     sessionId,
     latitude: myPos.latitude,
     longitude: myPos.longitude,
-    accuracy: myPos.accuracy
+    accuracy: myPos.accuracy,
+    timestamp: myPos.timestamp || Date.now()
   });
 });
 

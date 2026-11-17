@@ -54,12 +54,19 @@ async function listActiveForUser(userId) {
 }
 
 async function end(id, userId) {
-  await db.execute(
+  // Sécurité : on vérifie que l'utilisateur appartient réellement à la session.
+  // Si l'UPDATE ne touche aucune ligne (0 affectedRows), l'utilisateur n'est
+  // PAS participant : on renvoie null pour que le contrôleur réponde 404
+  // et ne termine pas une session qui ne lui appartient pas.
+  const [result] = await db.execute(
     `UPDATE meeting_sessions
      SET is_active = FALSE, ended_at = NOW()
      WHERE id = ? AND (user1_id = ? OR user2_id = ?)`,
     [id, userId, userId]
   );
+  if (result.affectedRows === 0) {
+    return null;
+  }
   return findById(id);
 }
 

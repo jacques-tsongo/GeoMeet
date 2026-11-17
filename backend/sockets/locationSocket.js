@@ -52,14 +52,21 @@ function attachLocationSocket(io) {
 
         // Renvoie les dernières positions connues des deux participants.
         // Cela permet au client de resynchroniser l'état dès la (re)connexion
-        // sans attendre le prochain signal GPS.
+        // sans attendre le prochain signal GPS. On ajoute un timestamp (epoch
+        // ms) pour que le client puisse ignorer une position plus ancienne
+        // que celle qu'il affiche déjà (évite les marqueurs qui "reculent").
         const [locUser1, locUser2] = await Promise.all([
           Location.findByUserId(session.user1_id),
           Location.findByUserId(session.user2_id)
         ]);
+        const withTimestamp = (loc) => {
+          if (!loc) return null;
+          const ts = new Date(loc.updated_at).getTime();
+          return { ...loc, timestamp: isFinite(ts) ? ts : Date.now() };
+        };
         const locations = {
-          [session.user1_id]: locUser1 || null,
-          [session.user2_id]: locUser2 || null
+          [session.user1_id]: withTimestamp(locUser1),
+          [session.user2_id]: withTimestamp(locUser2)
         };
 
         if (callback) callback({ ok: true, roomId, session, locations });
@@ -79,6 +86,14 @@ function attachLocationSocket(io) {
           return;
         }
 
+        // Bornes géographiques : une position hors des valeurs plausibles
+        // (latitude -90..90, longitude -180..180) est simplement ignorée.
+        if (!isFinite(latitude) || !isFinite(longitude) ||
+            latitude < -90 || latitude > 90 ||
+            longitude < -180 || longitude > 180) {
+          return;
+        }
+
         const session = await MeetingSession.findActiveForUser(sessionId, userId);
         if (!session) {
           return;
@@ -87,6 +102,10 @@ function attachLocationSocket(io) {
         await Location.upsert({ userId, latitude, longitude, accuracy });
 
         const updatedAt = new Date().toISOString();
+        // Le timestamp GPS fourni par le navigateur est relayé : il permet au
+        // client distant de classer les positions et d'ignorer une position
+        // obsolète (stale) qui arriverait après une plus récente.
+        const timestamp = Number.isFinite(payload.timestamp) ? payload.timestamp : Date.now();
         // 'socket.to(...)' exclut l'émetteur : seul l'autre participant du room
         // reçoit la position. Le nom/photo ne transitent pas ici (données privées).
         socket.to(meetingRoom(sessionId)).emit('location-update', {
@@ -95,7 +114,8 @@ function attachLocationSocket(io) {
           latitude,
           longitude,
           accuracy,
-          updatedAt
+          updatedAt,
+          timestamp
         });
       } catch (error) {
         socket.emit('location:error', { message: 'Position non envoyee.' });
@@ -103,7 +123,9 @@ function attachLocationSocket(io) {
     });
 
     socket.on('disconnect', () => {
-      setOffline(userId);
+      // setOffline reçoit l'identifiant du socket : un utilisateur ouvert dans
+      // plusieurs onglets reste "en ligne" tant qu'au moins un socket subsiste.
+      setOffline(userId, socket.id);
       io.emit('users:online', listOnlineIds());
     });
   });

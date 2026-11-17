@@ -35,6 +35,13 @@ input {
   font: inherit;
 }
 
+/* Meilleure expérience tactile : aucun délai de double-tap sur mobile et
+   pas de surbrillance par défaut lors d'un appui. */
+button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
 .auth-page {
   display: grid;
   place-items: center;
@@ -405,6 +412,96 @@ input:focus {
 .toast.show {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* ---------------------------------------------------------------------------
+   Bannière de demande reçue (temps réel) : notification interactive en
+   haut à droite avec les actions Accepter / Refuser, animée en douceur.
+--------------------------------------------------------------------------- */
+.request-banner {
+  position: fixed;
+  top: 86px;
+  right: 24px;
+  z-index: 90;
+  width: min(360px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  opacity: 0;
+  transform: translateY(-14px);
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.request-banner.show {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.request-banner-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.request-banner-title {
+  color: var(--primary-dark);
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.request-banner-close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.request-banner-body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.request-banner-body img {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.request-banner-body strong {
+  display: block;
+}
+
+.request-banner-body span {
+  display: block;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.request-banner-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.request-banner-actions .btn {
+  flex: 1;
 }
 
 /* ---------------------------------------------------------------------------

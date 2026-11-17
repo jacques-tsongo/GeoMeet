@@ -1,13 +1,30 @@
 const User = require('../models/User');
 
-const onlineUsers = new Map();
+// Présence en ligne : un utilisateur peut avoir PLUSIEURS sockets simultanés
+// (plusieurs onglets/navigateurs). On mémorise un ensemble de socketId par
+// utilisateur : il n'est considéré hors ligne que lorsque le DERNIER socket
+// se déconnecte.
+const onlineUsers = new Map(); // userId (string) -> Set de socketId
 
 function setOnline(userId, socketId) {
-  onlineUsers.set(String(userId), socketId);
+  const key = String(userId);
+  if (!onlineUsers.has(key)) {
+    onlineUsers.set(key, new Set());
+  }
+  onlineUsers.get(key).add(socketId);
 }
 
-function setOffline(userId) {
-  onlineUsers.delete(String(userId));
+// Renvoie true si l'utilisateur n'a plus AUCUN socket connecté.
+function setOffline(userId, socketId) {
+  const key = String(userId);
+  const sockets = onlineUsers.get(key);
+  if (!sockets) return true;
+  sockets.delete(socketId);
+  if (sockets.size === 0) {
+    onlineUsers.delete(key);
+    return true;
+  }
+  return false; // il reste au moins un autre onglet connecté
 }
 
 function isOnline(userId) {

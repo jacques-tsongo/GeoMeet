@@ -21,6 +21,7 @@ const sentRequests = document.getElementById('sentRequests');
 const activeSessions = document.getElementById('activeSessions');
 const onlineCount = document.getElementById('onlineCount');
 const toast = document.getElementById('toast');
+const requestBanner = document.getElementById('requestBanner');
 
 userName.textContent = `${currentUser.prenom} ${currentUser.nom}`;
 
@@ -31,13 +32,70 @@ document.getElementById('logoutBtn').addEventListener('click', () => {
 
 function avatar(user) {
   const src = user.photo || `https://ui-avatars.com/api/?name=${encodeURIComponent(`${user.prenom} ${user.nom}`)}&background=1f8a70&color=fff`;
-  return `<img src="${src}" alt="${user.prenom} ${user.nom}">`;
+  // La photo et les noms proviennent d'entrées utilisateurs : on échappe tout
+  // attribut/texte inséré dans le DOM pour éviter toute injection HTML (XSS).
+  return `<img src="${escapeAttr(src)}" alt="${escapeAttr(`${user.prenom} ${user.nom}`)}">`;
+}
+
+// Échappe une valeur destinée à un attribut HTML (guillemets inclus).
+function escapeAttr(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// Échappe une valeur destinée au contenu texte d'un élément HTML.
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function showToast(text) {
   toast.textContent = text;
   toast.classList.add('show');
   setTimeout(() => toast.classList.remove('show'), 4000);
+}
+
+// ---------------------------------------------------------------------------
+// Bannière de demande reçue : notification interactive affichée immédiatement
+// (sans rechargement) avec les boutons [Accepter] / [Refuser] directement
+// accessibles. Elle disparaît dès que la demande est traitée.
+// ---------------------------------------------------------------------------
+function showRequestBanner(request) {
+  requestBanner.hidden = false;
+  requestBanner.classList.add('show');
+  requestBanner.dataset.requestId = request.id;
+  requestBanner.innerHTML = `
+    <div class="request-banner-top">
+      <span class="request-banner-title">Nouvelle demande GeoMeet</span>
+      <button class="request-banner-close" data-dismiss-banner aria-label="Fermer">&times;</button>
+    </div>
+    <div class="request-banner-body">
+      ${avatar(request)}
+      <div>
+        <strong>${escapeHtml(request.sender_prenom || '')} ${escapeHtml(request.sender_nom || '')}</strong>
+        <span>souhaite partager sa localisation avec vous</span>
+      </div>
+    </div>
+    <div class="request-banner-actions">
+      <button class="btn small primary" data-action="accept" data-id="${request.id}">Accepter</button>
+      <button class="btn small ghost" data-action="reject" data-id="${request.id}">Refuser</button>
+    </div>`;
+}
+
+function hideRequestBanner(requestId) {
+  // On ne masque la bannière que si elle concerne la demande traitée :
+  // une demande plus récente affichée dans la bannière est conservée.
+  if (requestId == null || Number(requestBanner.dataset.requestId) === Number(requestId)) {
+    requestBanner.classList.remove('show');
+    requestBanner.hidden = true;
+    requestBanner.dataset.requestId = '';
+  }
 }
 
 async function api(url, options = {}) {
@@ -71,7 +129,7 @@ function renderRequest(request, type) {
 
   return `<article class="person-card">
     ${avatar(other)}
-    <div><strong>${other.prenom || ''} ${other.nom || ''}</strong><span>${type === 'received' ? 'souhaite vous rencontrer' : 'demande envoyee'}</span></div>
+    <div><strong>${escapeHtml(other.prenom || '')} ${escapeHtml(other.nom || '')}</strong><span>${type === 'received' ? 'souhaite vous rencontrer' : 'demande envoyee'}</span></div>
     ${actions}
   </article>`;
 }
@@ -80,7 +138,7 @@ function renderRequest(request, type) {
 function renderSession(session) {
   return `<article class="person-card">
     ${avatar(session.peer)}
-    <div><strong>${session.peer.prenom} ${session.peer.nom}</strong><span>Session ${String(session.state || (session.is_active ? 'active' : 'terminee')).toLowerCase()}</span></div>
+    <div><strong>${escapeHtml(session.peer.prenom)} ${escapeHtml(session.peer.nom)}</strong><span>Session ${String(session.state || (session.is_active ? 'active' : 'terminee')).toLowerCase()}</span></div>
     <a class="btn small primary" href="/meeting?session=${session.id}">Ouvrir la carte</a>
   </article>`;
 }
@@ -105,14 +163,20 @@ searchForm.addEventListener('submit', async (event) => {
   const users = await api(`/api/users/search?q=${encodeURIComponent(q)}`);
   searchResults.innerHTML = users.length ? users.map((user) => `<article class="person-card">
     ${avatar(user)}
-    <div><strong>${user.prenom} ${user.nom}</strong><span>${user.email}</span></div>
+    <div><strong>${escapeHtml(user.prenom)} ${escapeHtml(user.nom)}</strong><span>${escapeHtml(user.email)}</span></div>
     <span class="presence ${user.online ? 'on' : ''}">${user.online ? 'En ligne' : 'Hors ligne'}</span>
     <button class="btn small primary" data-send="${user.id}">Demander</button>
   </article>`).join('') : '<p class="empty">Aucun utilisateur trouve.</p>';
 });
 
-// Délégation d'événements pour les boutons des listes (envoyer / accepter / refuser).
+// Délégation d'événements pour les boutons des listes (envoyer / accepter / refuser)
+// et de la bannière de demande reçue (Accepter / Refuser / fermer).
 document.body.addEventListener('click', async (event) => {
+  if (event.target.dataset.dismissBanner !== undefined) {
+    hideRequestBanner();
+    return;
+  }
+
   const sendId = event.target.dataset.send;
   const action = event.target.dataset.action;
   const requestId = event.target.dataset.id;
@@ -133,6 +197,7 @@ document.body.addEventListener('click', async (event) => {
         method: 'PATCH',
         body: JSON.stringify({ status })
       });
+      hideRequestBanner(requestId);
       // Après acceptation, la carte s'ouvre automatiquement ici (côté B).
       if (data.session) {
         window.location.href = `/meeting?session=${data.session.id}`;
@@ -142,6 +207,7 @@ document.body.addEventListener('click', async (event) => {
     }
   } catch (error) {
     showToast(error.message);
+    await loadDashboard().catch(() => {});
   }
 });
 
@@ -155,9 +221,10 @@ socket.on('connect', () => {
   loadDashboard().catch(() => {});
 });
 
-// Nouvelle demande reçue : affichage immédiat du toast + mise à jour de la liste.
+// Nouvelle demande reçue : bannière interactive immédiate (Accepter/Refuser)
+// + mise à jour de la liste, sans aucun rechargement de page.
 socket.on('meeting:request', (request) => {
-  showToast(`${request.sender_prenom} souhaite partager sa localisation avec vous`);
+  showRequestBanner(request);
   loadDashboard().catch(() => {});
 });
 

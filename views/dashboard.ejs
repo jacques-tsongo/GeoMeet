@@ -58,6 +58,9 @@
   </main>
 
   <div id="toast" class="toast"></div>
+  <!-- Bannière de demande reçue : notification interactive temps réel,
+       affichée dès que l'événement Socket.IO meeting:request arrive. -->
+  <div id="requestBanner" class="request-banner" hidden></div>
   <!-- Socket.IO cote serveur (meme origine) + script JS absolu (/public) -->
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/dashboard.js"></script>

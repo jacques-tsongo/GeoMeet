@@ -42,4 +42,19 @@ async function listForUser(userId) {
   return rows;
 }
 
-module.exports = { create, findById, updateStatus, listForUser };
+// Vérifie qu'aucune demande PENDANTE n'existe déjà entre les deux utilisateurs
+// (dans un sens OU dans l'autre) : évite que l'utilisateur B reçoive plusieurs
+// demandes identiques affichées en double dans le tableau de bord.
+async function findPendingBetween(userAId, userBId) {
+  const [rows] = await db.execute(
+    `SELECT *
+     FROM meeting_requests
+     WHERE status = 'pending'
+       AND ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?))
+     LIMIT 1`,
+    [userAId, userBId, userBId, userAId]
+  );
+  return rows[0] || null;
+}
+
+module.exports = { create, findById, updateStatus, listForUser, findPendingBetween };

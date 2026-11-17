@@ -54,6 +54,13 @@ async function createRequest(req, res) {
       return res.status(404).json({ message: 'Utilisateur introuvable.' });
     }
 
+    // Une demande est déjà en attente entre ces deux utilisateurs : on refuse
+    // le doublon pour que le destinataire ne voie pas de demandes répétées.
+    const existing = await MeetingRequest.findPendingBetween(senderId, receiver_id);
+    if (existing) {
+      return res.status(409).json({ message: 'Une demande est deja en attente avec cet utilisateur.' });
+    }
+
     const request = await MeetingRequest.create(senderId, receiver_id);
     const io = req.app.get('io');
     io.to(`user:${receiver_id}`).emit('meeting:request', request);
